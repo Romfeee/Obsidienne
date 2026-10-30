@@ -8,504 +8,202 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
-:root{
-  --bg:#050506; --ink:#f4efe7; --mute:#8a8681; --line:rgba(255,255,255,.1);
-  --acc:#d98a2b;
-  --serif:"Cormorant Garamond",Georgia,serif; --sans:Inter,system-ui,-apple-system,sans-serif;
-}
+:root{--ink:#f4efe7;--mute:#8d8983;--line:rgba(255,255,255,.12);--acc:#e7943a;
+  --serif:"Cormorant Garamond",Georgia,serif;--sans:Inter,system-ui,-apple-system,sans-serif}
 *{box-sizing:border-box;margin:0;padding:0}
-html{background:var(--bg)}
-body{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+html,body{background:#030304;color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
 body.loading{overflow:hidden}
+a{color:inherit;text-decoration:none}
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
-img{display:block;user-select:none;-webkit-user-drag:none}
 
-/* ============ FILM / STAGE ============ */
-#film{position:relative}           /* height set in JS = length of the movie */
-#stage{position:sticky;top:0;height:100vh;height:100svh;overflow:hidden;background:#030304}
-#ambient{position:absolute;inset:0;pointer-events:none;z-index:0;
-  background:radial-gradient(55% 60% at 64% 52%,color-mix(in srgb,var(--acc) 16%,transparent),transparent 72%)}
-#world{position:absolute;left:0;top:0;width:1600px;height:900px;transform-origin:0 0;z-index:1;will-change:transform}
+#gl{position:fixed;inset:0;width:100vw;height:100vh;height:100lvh;display:block;z-index:0}
+#film{position:relative;z-index:1;pointer-events:none}   /* height set by JS */
+#ui{position:fixed;inset:0;z-index:2;pointer-events:none}
+#ui *{pointer-events:auto}
+#ui .ghost{pointer-events:none}
 
-/* floor */
-.floor{position:absolute;left:-2000px;right:-2000px;top:640px;height:600px;
-  background:linear-gradient(#0b0b0d 0%,#060607 40%,#030304 100%)}
-.floor::before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.18),transparent)}
-.wall{position:absolute;left:-2000px;right:-2000px;top:-600px;height:1240px;
-  background:#040405 url(img/stone.jpg) center/700px auto;opacity:.18;filter:brightness(.5)}
-
-/* niche */
-.niche{position:absolute;top:190px;width:150px;height:450px;cursor:pointer}
-.niche .box{position:absolute;inset:0;overflow:hidden;background:#0c0c0e url(img/stone.jpg) center/cover;
-  box-shadow:inset 0 0 50px 14px rgba(0,0,0,.95),inset 0 -20px 40px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.03)}
-.niche .dark{position:absolute;inset:0;background:#000;opacity:.72;z-index:1}        /* lights off = dark */
-.niche .light{position:absolute;inset:0;z-index:2;opacity:0;mix-blend-mode:screen;pointer-events:none}
-.niche .light::before{content:"";position:absolute;inset:0;
-  background:
-   radial-gradient(38% 26% at 50% 0%,rgba(255,248,236,.75),transparent 78%),
-   conic-gradient(from 180deg at 50% -4%,transparent 160deg,rgba(255,244,228,.16) 172deg,rgba(255,244,228,.22) 180deg,rgba(255,244,228,.16) 188deg,transparent 200deg),
-   radial-gradient(60% 34% at 50% 86%,rgba(255,238,220,.28),transparent 70%)}
-.niche .light::after{content:"";position:absolute;inset:0;
-  background:linear-gradient(90deg,transparent 74%,color-mix(in srgb,var(--c) 55%,transparent) 96%,color-mix(in srgb,var(--c) 80%,#fff) 100%),
-             linear-gradient(270deg,transparent 86%,color-mix(in srgb,var(--c) 22%,transparent))}
-.niche .lamp{position:absolute;top:0;left:50%;width:34px;height:3px;margin-left:-17px;border-radius:0 0 4px 4px;z-index:4;background:#2a2826}
-.niche .lampOn{position:absolute;inset:0;border-radius:inherit;background:#fffaf0;box-shadow:0 0 14px 4px rgba(255,240,215,.7),0 0 40px 10px rgba(255,230,200,.25);opacity:0}
-.niche .base{position:absolute;left:0;right:0;bottom:0;height:34px;z-index:2;background:linear-gradient(#18181b,#0a0a0b);border-top:1px solid rgba(255,255,255,.07)}
-.niche .bottle{position:absolute;left:50%;bottom:34px;z-index:3;transform:translateX(-50%);pointer-events:none}
-.niche .bottle .tilt{position:relative}
-.niche .bottle img{height:100%;width:auto}
-.niche{--b:1}
-.niche .bottle .main{filter:drop-shadow(0 10px 10px rgba(0,0,0,.75)) brightness(var(--b))}
-.niche .refl img{filter:brightness(var(--b))}
-.niche .shine{position:absolute;top:0;bottom:0;left:0;width:34%;overflow:hidden;pointer-events:none;opacity:0;
-  -webkit-mask-image:linear-gradient(90deg,transparent,#000 45%,#000 55%,transparent);mask-image:linear-gradient(90deg,transparent,#000 45%,#000 55%,transparent)}
-.niche .shine img{position:absolute;top:0;left:0;height:100%;width:auto;max-width:none;filter:brightness(2.4) saturate(.5);opacity:.5}
-.niche .refl{position:absolute;left:50%;top:450px;z-index:0;transform:translateX(-50%) scaleY(-1);transform-origin:50% 50%;opacity:.22;filter:blur(1.2px);pointer-events:none;
-  -webkit-mask-image:linear-gradient(to top,rgba(0,0,0,.9),transparent 45%);mask-image:linear-gradient(to top,rgba(0,0,0,.9),transparent 45%)}
-.niche .refl img{height:100%;width:auto}
-.niche .pool{position:absolute;left:-30px;right:-30px;top:446px;height:120px;z-index:0;opacity:0;
-  background:radial-gradient(50% 40% at 50% 0%,color-mix(in srgb,var(--c) 30%,rgba(255,240,220,.25)),transparent 75%)}
-.niche .glass{position:absolute;top:-6px;bottom:-6px;right:-9px;width:5px;z-index:4;border-radius:3px;opacity:0;
-  background:linear-gradient(var(--c),color-mix(in srgb,var(--c) 40%,#fff),var(--c));box-shadow:0 0 18px 4px color-mix(in srgb,var(--c) 70%,transparent),0 0 60px 18px color-mix(in srgb,var(--c) 30%,transparent)}
-
-/* dust + grain + vignette */
-#dust{position:absolute;inset:0;z-index:3;pointer-events:none}
-#pshade{position:absolute;inset:0;z-index:4;pointer-events:none;opacity:0;background:linear-gradient(90deg,rgba(4,4,5,.97) 0%,rgba(4,4,5,.9) 30%,rgba(4,4,5,.4) 44%,transparent 54%)}
-@media (max-width:820px){#pshade{background:linear-gradient(0deg,rgba(4,4,5,.98) 0%,rgba(4,4,5,.92) 40%,transparent 62%)}}
-#vignette{position:absolute;inset:0;z-index:4;pointer-events:none;background:radial-gradient(120% 90% at 55% 50%,transparent 55%,rgba(0,0,0,.75))}
-#grain{position:absolute;inset:-50%;z-index:5;pointer-events:none;opacity:.07;
+/* shades behind text */
+.shade{position:absolute;inset:0;opacity:0;pointer-events:none}
+#shadeL{background:linear-gradient(90deg,rgba(3,3,4,.92) 0%,rgba(3,3,4,.75) 28%,rgba(3,3,4,0) 52%)}
+#shadeR{background:linear-gradient(270deg,rgba(3,3,4,.92) 0%,rgba(3,3,4,.75) 28%,rgba(3,3,4,0) 52%)}
+#shadeB{background:linear-gradient(0deg,rgba(3,3,4,.96) 0%,rgba(3,3,4,.85) 38%,rgba(3,3,4,0) 60%)}
+#vign{position:absolute;inset:0;pointer-events:none;background:radial-gradient(130% 100% at 50% 45%,transparent 55%,rgba(0,0,0,.7))}
+#grain{position:absolute;inset:-50%;pointer-events:none;opacity:.065;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   animation:grain 1s steps(6) infinite}
 @keyframes grain{0%{transform:translate(0,0)}20%{transform:translate(-4%,3%)}40%{transform:translate(3%,-2%)}60%{transform:translate(-2%,-4%)}80%{transform:translate(4%,2%)}100%{transform:translate(0,0)}}
+/* letterbox bars for the "film" feel */
+.bar{position:absolute;left:0;right:0;height:0;background:#000;pointer-events:none}
+#barT{top:0}#barB{bottom:0}
 
-/* ============ OVERLAYS ============ */
-header{position:absolute;inset:0 0 auto 0;z-index:20;display:flex;justify-content:space-between;align-items:center;padding:24px 36px}
+header{position:absolute;inset:0 0 auto 0;display:flex;justify-content:space-between;align-items:center;padding:24px 36px}
 .logo{display:flex;flex-direction:column;gap:4px;cursor:pointer}
 .logo b{font-family:var(--serif);font-weight:600;font-size:19px;letter-spacing:.44em}
 .logo span{font-size:8.5px;letter-spacing:.34em;text-transform:uppercase;color:var(--mute)}
 nav{display:flex;gap:8px}
-.pill{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;padding:10px 17px;border:1px solid var(--line);border-radius:99px;background:rgba(8,8,10,.45);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);transition:border-color .3s,background .3s;white-space:nowrap;display:inline-flex;align-items:center;gap:9px}
-.pill:hover{border-color:rgba(255,255,255,.4)}
-a{color:inherit;text-decoration:none}
+.pill{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;padding:10px 17px;border:1px solid var(--line);border-radius:99px;background:rgba(8,8,10,.45);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);transition:border-color .3s,background .3s,color .3s;white-space:nowrap;display:inline-flex;align-items:center;gap:9px}
+.pill:hover{border-color:rgba(255,255,255,.45)}
 .pill .dot{width:6px;height:6px;border-radius:50%;background:var(--acc);box-shadow:0 0 10px var(--acc)}
+.pill.solid{background:var(--ink);color:#000;border-color:var(--ink)}
+.pill.solid:hover{background:transparent;color:var(--ink)}
 
-/* product panels */
-.panel{position:absolute;z-index:15;left:clamp(28px,5.2vw,96px);top:50%;transform:translateY(-50%);width:min(400px,32vw);visibility:hidden}
-.panel .kicker{font-size:10px;letter-spacing:.32em;text-transform:uppercase;color:var(--mute);display:flex;align-items:center;gap:12px;margin-bottom:20px;overflow:hidden}
-.panel .kicker i{display:block;width:26px;height:1px;background:currentColor}
-.panel h2{font-family:var(--serif);font-weight:400;font-size:clamp(50px,5.2vw,88px);line-height:.92;letter-spacing:-.015em}
-.panel h2 .w{display:inline-block;overflow:hidden;vertical-align:top;padding-bottom:.08em;margin-bottom:-.08em}
-.panel h2 .ch{display:inline-block;will-change:transform}
-.panel h2 em{font-style:italic;color:var(--c)}
-.panel .desc{margin-top:24px;font-size:13.5px;line-height:1.75;color:#bfb9b1;font-weight:300}
-.panel dl{margin-top:26px;border-top:1px solid var(--line)}
-.panel dl div{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);font-size:12px}
-.panel dt{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--mute)}
-.panel .buy{margin-top:26px;display:flex;align-items:center;justify-content:space-between;gap:16px}
-.panel .price{font-family:var(--serif);font-size:25px;white-space:nowrap}
-.panel .price small{font-family:var(--sans);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--mute);margin-left:8px}
-.panel .cta{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;padding:13px 22px;border:1px solid rgba(255,255,255,.3);border-radius:99px;transition:background .3s,color .3s;white-space:nowrap}
-.panel .cta:hover{background:var(--ink);color:#000}
-.panel .num{position:absolute;top:-70px;left:0;font-family:var(--serif);font-style:italic;font-size:15px;color:var(--c)}
-
-/* collection title (wide shots) */
-#ctitle{position:absolute;z-index:15;left:clamp(28px,5.2vw,96px);bottom:clamp(70px,11vh,120px)}
+/* intro title */
+#ctitle{position:absolute;left:clamp(28px,5.2vw,96px);bottom:clamp(80px,12vh,130px)}
 #ctitle .k{font-size:10px;letter-spacing:.32em;text-transform:uppercase;color:var(--mute);margin-bottom:12px}
-#ctitle h1{font-family:var(--serif);font-weight:400;font-size:clamp(40px,4.6vw,74px);line-height:1}
-#ctitle h1 em{font-style:italic;color:#e36d8f}
-#ctitle p{margin-top:10px;font-size:12.5px;color:var(--mute);max-width:380px;line-height:1.6}
-#outro{position:absolute;z-index:15;inset:auto 0 clamp(60px,10vh,110px) 0;text-align:center;visibility:hidden}
-#outro h3{font-family:var(--serif);font-weight:400;font-size:clamp(34px,4vw,60px)}
-#outro h3 em{font-style:italic;color:#e36d8f}
-#outro .row{margin-top:20px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
-
-/* HUD */
-#hud{position:absolute;z-index:20;left:0;right:0;bottom:0;padding:0 36px 26px;display:flex;align-items:center;gap:22px;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--mute)}
-#hud .count b{color:var(--ink);font-weight:500}
-#hud .track{flex:1;height:1px;background:var(--line);position:relative}
-#hud .track i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ink)}
-#hud .ticks{position:absolute;inset:-6px 0;display:flex}
-#hud .ticks span{position:absolute;top:4px;width:5px;height:5px;margin-left:-2px;border-radius:50%;background:#333;cursor:pointer;transition:background .3s,transform .3s}
-#hud .ticks span.on{background:var(--acc);transform:scale(1.4)}
-#play{display:inline-flex;align-items:center;gap:10px}
-#play svg{width:10px;height:10px}
-#hint{position:absolute;z-index:20;left:50%;bottom:72px;transform:translateX(-50%);font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--mute);display:flex;flex-direction:column;align-items:center;gap:12px}
-#hint i{display:block;width:1px;height:38px;background:linear-gradient(var(--ink),transparent);animation:drip 1.8s ease-in-out infinite;transform-origin:top}
+#ctitle h1{font-family:var(--serif);font-weight:400;font-size:clamp(44px,5.4vw,86px);line-height:.98}
+#ctitle h1 em{font-style:italic;color:#e46e91}
+#ctitle p{margin-top:12px;font-size:12.5px;color:var(--mute);max-width:400px;line-height:1.6}
+#ctitle .row{margin-top:20px;display:flex;gap:10px;flex-wrap:wrap}
+#hint{position:absolute;left:50%;bottom:76px;transform:translateX(-50%);font-size:10px;letter-spacing:.3em;text-transform:uppercase;color:var(--mute);display:flex;flex-direction:column;align-items:center;gap:12px}
+#hint i{display:block;width:1px;height:40px;background:linear-gradient(var(--ink),transparent);animation:drip 1.8s ease-in-out infinite;transform-origin:top}
 @keyframes drip{0%{transform:scaleY(0);opacity:1}60%{transform:scaleY(1);opacity:1}100%{transform:scaleY(1);opacity:0}}
 
-/* loader */
+/* chapter title (when the bottle emerges) */
+.chead{position:absolute;left:0;right:0;top:13vh;text-align:center;visibility:hidden}
+.chead .k{font-size:10px;letter-spacing:.42em;text-transform:uppercase;color:var(--mute)}
+.chead .k b{color:var(--c);font-weight:500}
+.chead h2{font-family:var(--serif);font-weight:400;font-size:clamp(22px,2.2vw,34px);margin-top:10px;letter-spacing:.02em}
+.chead h2 em{font-style:italic;color:var(--c)}
+
+/* story beats */
+.beat{position:absolute;top:50%;transform:translateY(-50%);width:min(470px,36vw);visibility:hidden}
+.beat.L{left:clamp(28px,6vw,110px)}
+.beat.R{right:clamp(28px,6vw,110px)}
+.beat .bk{font-size:10px;letter-spacing:.34em;text-transform:uppercase;color:var(--mute);display:flex;align-items:center;gap:12px;margin-bottom:22px}
+.beat .bk i{display:block;width:30px;height:1px;background:var(--c)}
+.beat .bk b{color:var(--c);font-weight:500;font-family:var(--serif);font-style:italic;font-size:15px;letter-spacing:0;text-transform:none}
+.beat h3{font-family:var(--serif);font-weight:400;font-size:clamp(44px,4.6vw,76px);line-height:.98;letter-spacing:-.01em}
+.beat h3 em{font-style:italic;color:var(--c)}
+.w{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .02em .1em;margin:0 -.02em -.1em}
+.w>span{display:inline-block;will-change:transform}
+.beat p{margin-top:22px;font-size:14px;line-height:1.8;color:#c3bdb4;font-weight:300;max-width:420px}
+.stat{margin-top:30px;display:flex;align-items:baseline;gap:16px;border-top:1px solid var(--line);padding-top:20px}
+.stat .num{font-family:var(--serif);font-size:clamp(46px,4.4vw,70px);line-height:1;color:var(--ink);font-variant-numeric:lining-nums tabular-nums}
+.stat small{font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--mute);max-width:160px;line-height:1.6}
+.notes{list-style:none;margin-top:24px;display:flex;flex-wrap:wrap;gap:8px}
+.notes li{font-size:11px;letter-spacing:.14em;text-transform:uppercase;padding:9px 14px;border:1px solid color-mix(in srgb,var(--c) 45%,transparent);border-radius:99px;background:color-mix(in srgb,var(--c) 9%,transparent);backdrop-filter:blur(6px)}
+.serve{margin-top:20px;font-family:var(--serif);font-style:italic;font-size:19px;color:#d9d2c8;line-height:1.4}
+/* product card */
+.card h3{font-size:clamp(52px,5.4vw,90px)}
+.card dl{margin-top:26px;border-top:1px solid var(--line)}
+.card dl div{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.card dt{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--mute)}
+.card .buy{margin-top:26px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.card .price{font-family:var(--serif);font-size:26px;white-space:nowrap}
+.card .price small{font-family:var(--sans);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--mute);margin-left:8px}
+
+#outro{position:absolute;inset:auto 0 clamp(70px,11vh,120px) 0;text-align:center;visibility:hidden}
+#outro .k{font-size:10px;letter-spacing:.32em;text-transform:uppercase;color:var(--mute);margin-bottom:12px}
+#outro h3{font-family:var(--serif);font-weight:400;font-size:clamp(36px,4.2vw,64px)}
+#outro h3 em{font-style:italic;color:#e46e91}
+#outro .row{margin-top:22px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap}
+
+/* HUD */
+#hud{position:absolute;left:0;right:0;bottom:0;padding:0 36px 24px;display:flex;align-items:center;gap:22px;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--mute)}
+#hud .count b{color:var(--ink);font-weight:500}
+#hud .lbl{min-width:200px}
+#hud .lbl b{color:var(--ink);font-weight:400}
+#hud .track{flex:1;height:1px;background:var(--line);position:relative}
+#hud .track>i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--ink)}
+#ticks span{position:absolute;top:-3px;width:7px;height:7px;margin-left:-3px;border-radius:50%;background:#2a2a2c;cursor:pointer;transition:background .3s,transform .3s}
+#ticks span:hover{transform:scale(1.5)}
+#ticks span.on{background:var(--acc);transform:scale(1.5);box-shadow:0 0 10px var(--acc)}
+#ticks span em{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);white-space:nowrap;font-style:normal;font-size:9px;letter-spacing:.18em;color:var(--ink);opacity:0;transition:opacity .25s;pointer-events:none}
+#ticks span:hover em{opacity:1}
+#play svg{width:10px;height:10px}
+
 #loader{position:fixed;inset:0;z-index:100;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
 #loader b{font-family:var(--serif);font-weight:500;letter-spacing:.5em;font-size:20px;padding-left:.5em}
-#loader .bar{width:160px;height:1px;background:#222;position:relative;overflow:hidden}
-#loader .bar i{position:absolute;inset:0;background:var(--ink);transform:scaleX(0);transform-origin:left}
-#loader span{font-size:10px;letter-spacing:.3em;color:var(--mute)}
+#loader .lb{width:180px;height:1px;background:#222;position:relative;overflow:hidden}
+#loader .lb i{position:absolute;inset:0;background:var(--ink);transform:scaleX(0);transform-origin:left;transition:transform .3s}
+#loader span{font-size:10px;letter-spacing:.3em;color:var(--mute);text-transform:uppercase}
+#nogl{display:none;position:fixed;inset:0;z-index:99;align-items:center;justify-content:center;text-align:center;padding:30px;font-family:var(--serif);font-size:22px}
 
-/* ============ MOBILE ============ */
 @media (max-width:820px){
   header{padding:16px}
   .logo b{font-size:15px;letter-spacing:.36em}
   .pill{padding:8px 12px;font-size:9.5px}
-  nav .pill:first-child{display:none}
-  .panel{left:18px;right:18px;width:auto;top:auto;bottom:64px;transform:none}
-  .panel .num{display:none}
-  .panel h2{font-size:46px}
-  .panel .desc{display:none}
-  .panel dl{margin-top:14px}
-  .panel dl div{padding:7px 0}
-  .panel .buy{margin-top:14px}
-  .panel .kicker{margin-bottom:10px}
-  #ctitle{left:18px;right:18px;bottom:84px}
-  #hud{padding:0 18px 18px;gap:14px}
-  #hud .lbl{display:none}
+  nav .pill.m-hide{display:none}
+  #ctitle{left:18px;right:18px;bottom:86px}
   #hint{display:none}
+  .chead{top:74px;padding:0 18px}
+  .chead .k{font-size:8.5px;letter-spacing:.3em;line-height:1.8}
+  .chead h2{font-size:22px;margin-top:4px}
+  .beat,.beat.L,.beat.R{left:18px;right:18px;width:auto;top:auto;bottom:66px;transform:none}
+  .beat h3{font-size:40px}
+  .beat p{font-size:13px;margin-top:12px;line-height:1.65}
+  .beat .bk{margin-bottom:12px}
+  .stat{margin-top:14px;padding-top:12px}
+  .stat .num{font-size:40px}
+  .notes{margin-top:14px}
+  .notes li{padding:7px 11px;font-size:9.5px}
+  .serve{font-size:16px;margin-top:12px}
+  .card h3{font-size:46px}
+  .card dl{margin-top:14px}.card dl div{padding:8px 0}
+  .card .buy{margin-top:16px}
+  #hud{padding:0 18px 16px;gap:14px}
+  #hud .lbl{display:none}
+  #ticks span em{display:none}
 }
 @media (prefers-reduced-motion:reduce){#grain{animation:none}}
 </style>
 </head>
 <body class="loading">
+<canvas id="gl"></canvas>
+<div id="loader"><b>OBSIDIENNE</b><div class="lb"><i></i></div><span id="lmsg">Préparation de la cave</span></div>
+<div id="nogl">Votre navigateur ne prend pas en charge WebGL.<br>Essayez Chrome, Safari ou Firefox à jour.</div>
 
-<div id="loader"><b>OBSIDIENNE</b><div class="bar"><i></i></div><span id="lpct">00</span></div>
+<div id="film"></div>
 
-<div id="film">
-  <div id="stage">
-    <div id="ambient"></div>
-    <div id="world">
-      <div class="wall"></div>
-      <div class="floor"></div>
-      <!-- niches injected -->
+<div id="ui">
+  <div class="shade ghost" id="shadeL"></div>
+  <div class="shade ghost" id="shadeR"></div>
+  <div class="shade ghost" id="shadeB"></div>
+  <div id="vign" class="ghost"></div>
+  <div id="grain" class="ghost"></div>
+  <div id="chapters" class="ghost"></div>
+
+  <div id="ctitle" class="ghost">
+    <div class="k">Maison Obsidienne · Édition 2026</div>
+    <h1>La collection <em>nuit</em></h1>
+    <p>Huit spiritueux, huit histoires. Faites défiler pour entrer dans chaque niche, ou lancez le film.</p>
+    <div class="row" style="pointer-events:auto"><button class="pill solid" onclick="APP.play()">▶&nbsp; Lancer le film</button></div>
+  </div>
+  <div id="hint" class="ghost">Défiler<i></i></div>
+
+  <div id="outro">
+    <div class="k">Fin</div>
+    <h3>Toute la collection <em>nuit</em></h3>
+    <div class="row">
+      <a class="pill solid" id="mailAll" href="#">Demander le catalogue pro</a>
+      <button class="pill" onclick="APP.goTo(0,true)">Revoir le film</button>
     </div>
-    <canvas id="dust"></canvas>
-    <div id="pshade"></div>
-    <div id="vignette"></div>
-    <div id="grain"></div>
+  </div>
 
-    <header>
-      <div class="logo" onclick="goTo(0)"><b>OBSIDIENNE</b><span>Maison de spiritueux</span></div>
-      <nav>
-        <button class="pill" onclick="goTo(0)">Collection</button>
-        <a class="pill" href="mailto:contact@exemple.fr">Contact <i class="dot"></i></a>
-      </nav>
-    </header>
+  <div class="bar ghost" id="barT"></div><div class="bar ghost" id="barB"></div>
 
-    <div id="ctitle">
-      <div class="k">Maison Obsidienne · Édition 2026</div>
-      <h1>La collection <em>nuit</em></h1>
-      <p>Huit spiritueux, une niche de pierre chacun. Faites défiler, ou lancez la lecture.</p>
-    </div>
-    <div id="panels"></div>
-    <div id="outro">
-      <h3>Toute la collection <em>nuit</em></h3>
-      <div class="row">
-        <a class="pill" href="mailto:contact@exemple.fr">Demander le catalogue pro <i class="dot"></i></a>
-        <button class="pill" onclick="goTo(0,true)">Revoir le film</button>
-      </div>
-    </div>
+  <header>
+    <div class="logo" onclick="APP.goTo(0)"><b>OBSIDIENNE</b><span>Maison de spiritueux</span></div>
+    <nav>
+      <button class="pill m-hide" onclick="APP.goTo(0)">Collection</button>
+      <a class="pill" id="mailTop" href="#">Contact <i class="dot"></i></a>
+    </nav>
+  </header>
 
-    <div id="hint">Défiler<i></i></div>
-    <div id="hud">
-      <span class="count"><b id="hIdx">00</b> / <span id="hTot">08</span></span>
-      <span class="lbl" id="hName">La collection</span>
-      <div class="track"><i id="hBar"></i><div class="ticks" id="ticks"></div></div>
-      <button id="play" class="pill"><svg viewBox="0 0 10 10" id="pIco"><path d="M1 0l9 5-9 5z" fill="currentColor"/></svg><span id="pTxt">Lecture</span></button>
-    </div>
+  <div id="hud">
+    <span class="count"><b id="hIdx">00</b> / <span id="hTot">08</span></span>
+    <span class="lbl" id="hName">La collection</span>
+    <div class="track"><i id="hBar"></i><div id="ticks"></div></div>
+    <button id="play" class="pill"><svg viewBox="0 0 10 10" id="pIco"><path d="M1 0l9 5-9 5z" fill="currentColor"/></svg><span id="pTxt">Lecture</span></button>
   </div>
 </div>
 
-<script src="vendor/gsap.min.js"></script>
-<script src="vendor/ScrollTrigger.min.js"></script>
-<script src="vendor/lenis.min.js"></script>
-<script>
-/* =====================================================================
-   PRODUITS — modifiez ici. Pour ajouter une bouteille : mettez son PNG
-   détouré dans img/ et ajoutez une ligne. *texte* = italique couleur.
-   s = taille relative de la bouteille (1 = 70 cl standard).
-   ===================================================================== */
-const P=[
- {img:'rhum',  cat:'Rhum agricole · Martinique', brand:'J. Bally',   name:'J. Bally *7 ans*',   deg:'45°',vol:'70 cl',c:'#e0923a',s:.8,
-  desc:'Un rhum vieux agricole AOC Martinique, sept ans en fût de chêne, dans sa carafe pyramide. Fruits secs, vanille, épices douces.'},
- {img:'cognac',cat:'Cognac',                     brand:'Gautier',    name:'Gautier *VS*',       deg:'40°',vol:'70 cl',c:'#2fa6cc',s:1,
-  desc:'Un cognac vif et fruité de la Maison Gautier, à Aigre depuis 1755. Parfait en cocktail comme à la dégustation.'},
- {img:'whisky',cat:'Bourbon · Kentucky',         brand:'Weller',     name:'Weller *12 ans*',    deg:'45°',vol:'70 cl',c:'#e3a948',s:1,
-  desc:'Le bourbon « wheated » original, douze ans de vieillissement. Rond et gourmand : caramel, miel, chêne toasté.'},
- {img:'tequila',cat:'Tequila · Jalisco',         brand:'1800',       name:'1800 *Añejo*',       deg:'38°',vol:'70 cl',c:'#c8672e',s:.86,
-  desc:'Une tequila 100 % agave vieillie en fût de chêne. Notes de fruits secs, de caramel et de bois.'},
- {img:'mezcal',cat:'Mezcal · Oaxaca',            brand:'400 Conejos',name:'400 *Conejos*',      deg:'38°',vol:'70 cl',c:'#3fb0d6',s:1.04,
-  desc:'Un mezcal joven d’agave espadín, cuit en four de terre. Fumé, végétal, d’une grande fraîcheur.'},
- {img:'vodka', cat:'Vodka',                      brand:'Stoli',      name:'Stoli *Elit*',       deg:'40°',vol:'70 cl',c:'#d8dee8',s:1.08,
-  desc:'Une vodka ultra-premium filtrée à froid, d’une pureté et d’une douceur remarquables.'},
- {img:'gin',   cat:'Gin · France',               brand:'Generous',   name:'Generous *Purple*',  deg:'44°',vol:'70 cl',c:'#c03a78',s:.92,
-  desc:'Un gin français aux baies de raisin, poivre et pamplemousse, dans son flacon de porcelaine iconique.'},
- {img:'effervescent',cat:'Vin effervescent · Italie',brand:'Perlino',name:'Perlino *Prosecco*', deg:'11°',vol:'75 cl',c:'#d6b450',s:1.02,
-  desc:'Un prosecco extra dry, frais et léger, aux bulles fines. Pour l’apéritif et le spritz.'},
-];
-const CONTACT='contact@exemple.fr';
-
-/* ---------- world geometry (units of a 1600×900 set) ---------- */
-const N=P.length, NW=150, NH=450, GAP=34, TOP=190;
-const ROW=N*NW+(N-1)*GAP, X0=(1600-ROW)/2;
-const nx=i=>X0+i*(NW+GAP);
-const BH=300; // base bottle height (units)
-
-const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-const fmt=n=>String(n).padStart(2,'0');
-const world=$('#world');
-
-/* build niches */
-P.forEach((p,i)=>{
-  const h=BH*p.s, src=`img/${p.img}.png`;
-  const d=document.createElement('div'); d.className='niche'; d.style.cssText=`left:${nx(i)}px;--c:${p.c}`;
-  d.innerHTML=`
-   <div class="pool"></div>
-   <div class="refl" style="height:${h}px;bottom:auto;top:${NH}px"><img src="${src}" alt=""></div>
-   <div class="box"><div class="dark"></div><div class="light"></div><div class="base"></div>
-     <div class="bottle" style="height:${h}px"><div class="tilt" style="height:100%">
-       <img class="main" src="${src}" alt="${p.brand}">
-       <div class="shine"><img src="${src}" alt=""></div>
-     </div></div>
-   </div>
-   <div class="lamp"><div class="lampOn"></div></div>
-   <div class="glass"></div>`;
-  d.addEventListener('click',()=>goTo(i+1));
-  world.appendChild(d);
-});
-/* reflection should start at niche bottom, mirrored around the base line */
-$$('.niche .refl').forEach(r=>{ r.style.top=NH+'px' });
-
-/* panels */
-const split=t=>t.split(/(\*[^*]+\*)/).filter(Boolean).map(seg=>{
-  const it=seg.startsWith('*'); const txt=it?seg.slice(1,-1):seg;
-  return txt.split(/(\s+)/).map(w=>/^\s+$/.test(w)?' ':`<span class="w">${[...w].map(c=>`<span class="ch">${c}</span>`).join('')}</span>`).join('').replace(/^/,it?'<em>':'').replace(/$/,it?'</em>':'');
-}).join('');
-$('#panels').innerHTML=P.map((p,i)=>`
- <section class="panel" style="--c:${p.c}">
-  <div class="num">N° ${fmt(i+1)}</div>
-  <div class="kicker"><i></i><span>${p.cat}</span></div>
-  <h2>${split(p.name)}</h2>
-  <p class="desc">${p.desc}</p>
-  <dl><div><dt>Maison</dt><dd>${p.brand}</dd></div><div><dt>Degré</dt><dd>${p.deg}</dd></div><div><dt>Contenance</dt><dd>${p.vol}</dd></div></dl>
-  <div class="buy"><div class="price">Sur demande<small>tarif pro</small></div>
-   <a class="cta" href="mailto:${CONTACT}?subject=${encodeURIComponent('Demande : '+p.brand+' '+p.name.replace(/\*/g,''))}">Commander</a></div>
- </section>`).join('');
-$('#hTot').textContent=fmt(N);
-
-/* ---------- camera ---------- */
-const mobile=()=>innerWidth<=820;
-function shot(i){ // i = -1 wide shot, else focus niche i
-  const vw=innerWidth, vh=innerHeight;
-  let Z,cx,cy,sx,sy;
-  if(i<0){
-    Z=mobile()? (vw*.96)/ROW : Math.min(vw*.92/ROW, vh*.9/700);
-    cx=800; cy=TOP+NH/2+30; sx=vw/2; sy=mobile()? vh*.40 : vh*.47;
-  }else{
-    cx=nx(i)+NW/2; cy=TOP+NH/2+18;
-    if(mobile()){ Z=Math.min(vh*.50/NH, vw*.72/NW); sx=vw/2; sy=vh*.33; }
-    else { Z=vh*.80/NH; sx=vw*.635; sy=vh*.52; }
-  }
-  return {x:sx-Z*cx, y:sy-Z*cy, scale:Z};
-}
-function mid(a,b){ // pull-back between two niches
-  const A=shot(a),B=shot(b),W=shot(-1); const Z=(A.scale+W.scale)/2*1.08;
-  const vw=innerWidth,vh=innerHeight, cx=(nx(a)+nx(b))/2+NW/2, cy=TOP+NH/2+18;
-  const sx=mobile()?vw/2:vw*.6, sy=mobile()?vh*.36:vh*.5;
-  return {x:sx-Z*cx,y:sy-Z*cy,scale:Z};
-}
-
-/* ---------- scroll & timeline ---------- */
-gsap.registerPlugin(ScrollTrigger);
-const lenis=new Lenis({lerp:.085,smoothWheel:true});
-lenis.on('scroll',ScrollTrigger.update);
-gsap.ticker.add(t=>lenis.raf(t*1000)); gsap.ticker.lagSmoothing(0);
-
-const niches=$$('.niche'), panels=$$('.panel');
-const q=(i,s)=>niches[i].querySelector(s);
-/* light sweep across the glass: a soft window travels across the bottle and reveals a brightened copy */
-const sweep=P.map(()=>({p:-.4}));
-function applySweep(i){
-  const n=niches[i], win=n.querySelector('.shine'), im=win.querySelector('img'), main=n.querySelector('.main');
-  const W=main.getBoundingClientRect().width/ (gsap.getProperty(world,'scaleX')||1);
-  const x=sweep[i].p*W; win.style.transform=`translateX(${x}px)`; im.style.transform=`translateX(${-x}px)`;
-  win.style.opacity=(sweep[i].p>-.35&&sweep[i].p<1.05)?1:0;
-}
-const UNIT_VH=55;         // scroll length of one timeline second, in vh
-let tl, chapters=[];      // chapters[k] = timeline time of hold for k (0 = wide)
-
-function build(){
-  if(tl){ tl.scrollTrigger.kill(); tl.kill(); }
-  gsap.set(world,shot(-1));
-  gsap.set('.panel',{autoAlpha:0}); gsap.set('#outro',{autoAlpha:0});
-  tl=gsap.timeline({defaults:{ease:'power2.inOut'}});
-  chapters=[0];
-  tl.addLabel('wide',0).to({},{duration:.6});               // hold on wide shot
-  tl.to('#ctitle',{autoAlpha:0,y:-20,duration:.5},'>-0.1');
-  tl.to('#hint',{autoAlpha:0,duration:.3},'<');
-  tl.to('#pshade',{opacity:1,duration:1},.7);
-  P.forEach((p,i)=>{
-    const t0=tl.duration();
-    // camera: from wide (or pull-back mid shot) into niche i
-    if(i>0){
-      tl.to(world,{...mid(i-1,i),duration:.9,ease:'power2.in'},t0);
-      tl.to(world,{...shot(i),duration:1.1,ease:'power3.out'},t0+.9);
-    } else {
-      tl.to(world,{...shot(0),duration:1.6,ease:'power3.inOut'},t0);
-    }
-    const tin=t0+(i>0?1.2:1.0);
-    // lights: dim everything else, light this one
-    tl.to('.niche .light',{opacity:.12,duration:.6},t0+.2);
-    tl.to('.niche .dark',{opacity:.86,duration:.6},t0+.2);
-    tl.to(niches,{'--b':.22,duration:.6},t0+.2);
-    tl.to(q(i,'.light'),{opacity:1,duration:.7},tin-.3);
-    tl.to(q(i,'.dark'),{opacity:0,duration:.7},tin-.3);
-    tl.to(niches[i],{'--b':1,duration:.7},tin-.3);
-    tl.to(q(i,'.glass'),{opacity:1,duration:.6},tin-.2);
-    tl.to(q(i,'.pool'),{opacity:1,duration:.6},tin-.2);
-    tl.to(document.documentElement,{'--acc':p.c,duration:.8},tin-.4);
-    // bottle reveal + light sweep
-    tl.fromTo(q(i,'.bottle'),{y:26,scale:.97},{y:0,scale:1,duration:.9,ease:'power3.out',immediateRender:false},tin-.4);
-    tl.fromTo(sweep[i],{p:-.4},{p:1.1,duration:1.5,ease:'none',immediateRender:false,onUpdate:()=>applySweep(i)},tin);
-    // panel in
-    const pn=panels[i];
-    tl.set(pn,{autoAlpha:1},tin);
-    tl.fromTo(pn.querySelectorAll('.ch'),{yPercent:115,rotate:6},{yPercent:0,rotate:0,duration:.7,stagger:.022,ease:'power4.out'},tin);
-    tl.fromTo(pn.querySelectorAll('.kicker,.num,.desc,dl,.buy'),{autoAlpha:0,y:16},{autoAlpha:1,y:0,duration:.6,stagger:.07,ease:'power3.out'},tin+.1);
-    const hold=tin+.9; chapters.push(hold+.3);
-    tl.to({}, {duration:1.1},hold);                         // hold on the product
-    // panel out
-    const tout=hold+1.1;
-    tl.to(pn.querySelectorAll('.ch'),{yPercent:-110,duration:.45,stagger:.012,ease:'power2.in'},tout);
-    tl.to(pn.querySelectorAll('.kicker,.num,.desc,dl,.buy'),{autoAlpha:0,y:-10,duration:.35,stagger:.03},tout);
-    tl.set(pn,{autoAlpha:0},tout+.55);
-    tl.to(q(i,'.glass'),{opacity:.35,duration:.5},tout);
-  });
-  // outro: pull back to wide, all lights on one after another
-  const t1=tl.duration();
-  tl.to(world,{...shot(-1),duration:1.8,ease:'power3.inOut'},t1);
-  tl.to('#pshade',{opacity:0,duration:1},t1+.2);
-  niches.forEach((n,i)=>{
-    tl.to(n.querySelector('.light'),{opacity:1,duration:.3},t1+.6+i*.09);
-    tl.to(n.querySelector('.dark'),{opacity:0,duration:.3},t1+.6+i*.09);
-    tl.to(n,{'--b':1,duration:.3},t1+.6+i*.09);
-    tl.to(n.querySelector('.glass'),{opacity:1,duration:.3},t1+.6+i*.09);
-  });
-  tl.to(document.documentElement,{'--acc':'#c9365a',duration:.8},t1+.6);
-  tl.fromTo('#outro',{autoAlpha:0,y:24},{autoAlpha:1,y:0,duration:.7,ease:'power3.out'},t1+1.3);
-  chapters.push(tl.duration()+.2);
-  tl.to({}, {duration:.6});
-
-  $('#film').style.height=`calc(${tl.duration()*UNIT_VH}vh + 100vh)`;
-  ScrollTrigger.create({trigger:'#film',start:'top top',end:'bottom bottom',scrub:1.1,animation:tl});
-  tl.eventCallback('onUpdate',hud);
-  buildTicks();
-}
-
-/* ---------- HUD ---------- */
-function current(){
-  const t=tl.time(); let k=0;
-  for(let j=1;j<chapters.length-1;j++) if(t>=chapters[j]-1.4) k=j;
-  if(t>=chapters[chapters.length-1]-1.6) k=0;
-  return k;
-}
-let lastK=-1;
-function hud(){
-  $('#hBar').style.width=(tl.progress()*100)+'%';
-  const k=current(); if(k===lastK) return; lastK=k;
-  $('#hIdx').textContent=fmt(k); $('#hName').textContent=k?P[k-1].name.replace(/\*/g,''):'La collection';
-  $$('#ticks span').forEach((s,j)=>s.classList.toggle('on',j===k-1));
-}
-function buildTicks(){
-  const D=tl.duration();
-  $('#ticks').innerHTML=P.map((p,i)=>`<span style="left:${chapters[i+1]/D*100}%" title="${p.name.replace(/\*/g,'')}"></span>`).join('');
-  $$('#ticks span').forEach((s,i)=>s.onclick=()=>goTo(i+1));
-}
-function yFor(t){ const st=tl.scrollTrigger; return st.start+(st.end-st.start)*(t/tl.duration()); }
-function goTo(k,instant){
-  stopPlay();
-  const t=k===0?0:chapters[k];
-  lenis.scrollTo(yFor(t),{duration:instant?0:Math.min(3.2,.8+Math.abs(yFor(t)-scrollY)/innerHeight*.18),immediate:!!instant,
-    easing:x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2});
-}
-
-/* ---------- autoplay ("comme une vidéo") ---------- */
-let playing=false;
-const SPEED=1.05; // seconds of film per timeline second
-function play(){
-  const st=tl.scrollTrigger; let from=scrollY;
-  if(from>=st.end-4){ lenis.scrollTo(0,{immediate:true}); from=0; }
-  playing=true; setPlayUI();
-  const remaining=(st.end-from)/(st.end-st.start)*tl.duration()*SPEED;
-  lenis.scrollTo(st.end,{duration:remaining,easing:x=>x,lock:false,onComplete:()=>{playing=false;setPlayUI()}});
-}
-function stopPlay(){ if(!playing) return; playing=false; lenis.scrollTo(scrollY,{immediate:true}); setPlayUI(); }
-function setPlayUI(){
-  $('#pTxt').textContent=playing?'Pause':'Lecture';
-  $('#pIco').innerHTML=playing?'<path d="M1 0h3v10H1zM6 0h3v10H6z" fill="currentColor"/>':'<path d="M1 0l9 5-9 5z" fill="currentColor"/>';
-}
-$('#play').onclick=()=>playing?stopPlay():play();
-['wheel','touchstart','keydown'].forEach(ev=>addEventListener(ev,e=>{ if(playing && !(e.target.closest&&e.target.closest('#play'))) stopPlay(); },{passive:true}));
-addEventListener('keydown',e=>{
-  if(e.code==='Space'){ if(e.target.closest&&e.target.closest('button,a'))return; e.preventDefault(); playing?stopPlay():play(); }
-  const k=current();
-  if(e.key==='ArrowRight'||e.key==='ArrowDown') goTo(Math.min(N,k+1));
-  if(e.key==='ArrowLeft'||e.key==='ArrowUp') goTo(Math.max(0,k-1));
-});
-
-/* ---------- bottle tilt with the mouse ---------- */
-addEventListener('pointermove',e=>{
-  if(mobile()) return;
-  const rx=(e.clientX/innerWidth-.5), ry=(e.clientY/innerHeight-.5);
-  gsap.to('.niche .tilt',{x:rx*5,duration:1.2,ease:'power3.out'});
-  gsap.to('#ambient',{x:rx*30,y:ry*20,duration:1.6,ease:'power3.out'});
-});
-
-/* ---------- dust in the light ---------- */
-const cv=$('#dust'), cx=cv.getContext('2d'); let parts=[];
-function sizeDust(){ const r=Math.min(2,devicePixelRatio||1); cv.width=innerWidth*r; cv.height=innerHeight*r; cx.setTransform(r,0,0,r,0,0);
-  parts=Array.from({length:mobile()?40:90},()=>({x:Math.random()*innerWidth,y:Math.random()*innerHeight,r:Math.random()*1.3+.2,vx:(Math.random()-.5)*.12,vy:-Math.random()*.18-.03,a:Math.random()*.5+.1,p:Math.random()*6})); }
-function dust(t){
-  cx.clearRect(0,0,innerWidth,innerHeight);
-  const focusX=mobile()?innerWidth/2:innerWidth*.635, wide=current()===0;
-  for(const d of parts){
-    d.x+=d.vx; d.y+=d.vy; if(d.y<-5){d.y=innerHeight+5;d.x=Math.random()*innerWidth}
-    const near=wide?1:Math.max(0,1-Math.abs(d.x-focusX)/(innerWidth*.18));
-    const a=d.a*(.25+.75*near)*(.6+.4*Math.sin(t/900+d.p));
-    cx.beginPath(); cx.arc(d.x,d.y,d.r,0,6.283); cx.fillStyle=`rgba(255,240,220,${a})`; cx.fill();
-  }
-  requestAnimationFrame(dust);
-}
-
-/* ---------- loader + intro (lights switching on) ---------- */
-function intro(){
-  const imgs=[...document.images]; let done=0;
-  const step=()=>{ done++; const p=Math.round(done/imgs.length*100);
-    gsap.to('#loader .bar i',{scaleX:done/imgs.length,duration:.3}); $('#lpct').textContent=fmt(Math.min(99,p)); };
-  return Promise.all(imgs.map(im=>im.complete?(step(),1):new Promise(r=>{im.onload=im.onerror=()=>{step();r()}})));
-}
-function start(){
-  build(); sizeDust(); requestAnimationFrame(dust);
-  gsap.set('.niche .light,.niche .glass,.niche .pool,.niche .lampOn',{opacity:0});
-  gsap.set('.niche .dark',{opacity:.9}); gsap.set(niches,{'--b':.2});
-  gsap.set(['#ctitle','#hud','header','#hint'],{autoAlpha:0});
-  const it=gsap.timeline({delay:.15});
-  it.to('#loader',{autoAlpha:0,duration:.8,ease:'power2.inOut',onComplete:()=>document.body.classList.remove('loading')})
-    .fromTo(world,{...(()=>{const s=shot(-1);return {x:s.x-innerWidth*.04,y:s.y+innerHeight*.02,scale:s.scale*1.08}})()},{...shot(-1),duration:3.2,ease:'power3.out'},'<');
-  niches.forEach((n,i)=>{
-    const at=.6+i*.16;
-    // flicker like neon/halogen warming up
-    it.to(n.querySelector('.lampOn'),{keyframes:[{opacity:1,duration:.05},{opacity:.2,duration:.06},{opacity:1,duration:.05},{opacity:.4,duration:.08},{opacity:1,duration:.1}]},at)
-      .to(n.querySelector('.light'),{keyframes:[{opacity:.8,duration:.05},{opacity:.1,duration:.06},{opacity:1,duration:.2}]},at)
-      .to(n.querySelector('.dark'),{opacity:0,duration:.4},at+.05)
-      .to(n,{'--b':1,duration:.4},at+.05)
-      .to(n.querySelector('.glass'),{opacity:1,duration:.5},at+.1)
-      .to(n.querySelector('.pool'),{opacity:1,duration:.5},at+.1);
-  });
-  it.fromTo('header',{autoAlpha:0,y:-10},{autoAlpha:1,y:0,duration:.8},1.4)
-    .fromTo('#ctitle',{autoAlpha:0,y:24},{autoAlpha:1,y:0,duration:1,ease:'power3.out'},1.9)
-    .fromTo(['#hud','#hint'],{autoAlpha:0},{autoAlpha:1,duration:.8},2.3)
-    .add(()=>{ ScrollTrigger.refresh(); },2.6);
-}
-document.fonts&&document.fonts.ready; intro().then(()=>setTimeout(start,250));
-addEventListener('resize',()=>{ clearTimeout(window._rz); window._rz=setTimeout(()=>{ const p=tl.scrollTrigger.progress; build(); sizeDust(); ScrollTrigger.refresh();
-  lenis.scrollTo(yFor(p*tl.duration()),{immediate:true}); },200) });
-history.scrollRestoration='manual'; scrollTo(0,0);
-</script>
+<script src="js/three.min.js"></script>
+<script src="js/gsap.min.js"></script>
+<script src="js/ScrollTrigger.min.js"></script>
+<script src="js/lenis.min.js"></script>
+<script src="js/assets.js"></script>
+<script src="js/content.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>
