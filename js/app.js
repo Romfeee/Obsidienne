@@ -20,6 +20,82 @@ const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x030304, 16, 46);
 const camera = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.05, 140);
 
+/* ------------------------------------------------------------------ post-processing (bloom · DOF · CA · grain) */
+const POST = (() => {
+  const gl2 = renderer.capabilities.isWebGL2;
+  const hdr = gl2 && (renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float'));
+  const type = hdr ? THREE.HalfFloatType : THREE.UnsignedByteType;
+  // Renderable HDR does not guarantee support for four-sample HDR attachments.
+  const gl = renderer.getContext();
+  const sampleCounts = gl2 ? gl.getInternalformatParameter(gl.RENDERBUFFER, hdr ? gl.RGBA16F : gl.RGBA8, gl.SAMPLES) : [];
+  const samples = Math.max(0, ...Array.from(sampleCounts || []).filter(n => n <= 4 && n <= renderer.capabilities.maxSamples));
+  const mk = (s) => new THREE.WebGLRenderTarget(1, 1, { type, depthBuffer: !!s, samples: s ? samples : 0, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+  const rtScene = mk(true), hA = mk(), hB = mk(), b1A = mk(), b1B = mk(), b2A = mk(), b2B = mk(), b3A = mk(), b3B = mk();
+  const qCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), qScene = new THREE.Scene();
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2)); quad.frustumCulled = false; qScene.add(quad);
+  const VS = `varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.,1.); }`;
+  const M = (fs, u) => new THREE.ShaderMaterial({ vertexShader: VS, fragmentShader: fs, uniforms: u, depthTest: false, depthWrite: false });
+  const copy = M(`uniform sampler2D t; uniform vec2 px; varying vec2 vUv; void main(){
+      vec3 c=texture2D(t,vUv+px*vec2(-1.,-1.)).rgb+texture2D(t,vUv+px*vec2(1.,-1.)).rgb+texture2D(t,vUv+px*vec2(-1.,1.)).rgb+texture2D(t,vUv+px*vec2(1.,1.)).rgb;
+      gl_FragColor=vec4(c*.25,1.); }`, { t: { value: null }, px: { value: new THREE.Vector2() } });
+  const bright = M(`uniform sampler2D t; uniform float th; varying vec2 vUv; void main(){
+      vec3 c=texture2D(t,vUv).rgb; float l=max(c.r,max(c.g,c.b)); float k=clamp((l-th+.18)/.36,0.,1.);
+      float w=max(l-th,0.)+k*k*.09; gl_FragColor=vec4(c*w/max(l,1e-4),1.); }`, { t: { value: null }, th: { value: .72 } });
+  const blur = M(`uniform sampler2D t; uniform vec2 dir; varying vec2 vUv; void main(){
+      vec3 c=texture2D(t,vUv).rgb*.2270270;
+      c+=(texture2D(t,vUv+dir*1.3846154).rgb+texture2D(t,vUv-dir*1.3846154).rgb)*.3162162;
+      c+=(texture2D(t,vUv+dir*3.2307692).rgb+texture2D(t,vUv-dir*3.2307692).rgb)*.0702703;
+      gl_FragColor=vec4(c,1.); }`, { t: { value: null }, dir: { value: new THREE.Vector2() } });
+  const comp = M(`uniform sampler2D tS,tSoft,tB1,tB2,tB3; uniform vec2 uFocus,uAsp; uniform float uTime,uBloom,uCA,uDof,uGrain; varying vec2 vUv;
+    float h(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453); }
+    vec3 shoulder(vec3 x){ vec3 k=step(.82,x); return mix(x,.82+.18*(1.-exp(-(x-.82)/.18)),k); }
+    void main(){
+      vec2 d=vUv-.5; float r2=dot(d,d);
+      vec2 o=d*uCA*(.35+r2*2.5);
+      vec3 c=vec3(texture2D(tS,vUv+o).r,texture2D(tS,vUv).g,texture2D(tS,vUv-o).b);
+      vec2 fd=(vUv-uFocus)*uAsp; float f=smoothstep(.10,.42,length(fd*vec2(1.,.55)));
+      c=mix(c,texture2D(tSoft,vUv).rgb,f*uDof);
+      vec3 bl=texture2D(tB1,vUv).rgb*.55+texture2D(tB2,vUv).rgb*.75+texture2D(tB3,vUv).rgb*.95;
+      c+=bl*uBloom;
+      c=shoulder(c);
+      float g=h(vUv*vec2(1717.,913.)+fract(uTime*7.13))-.5; c+=g*uGrain*(1.1-dot(c,vec3(.33)));
+      gl_FragColor=vec4(max(c,0.),1.); }`, {
+    tS: { value: null }, tSoft: { value: null }, tB1: { value: null }, tB2: { value: null }, tB3: { value: null },
+    uFocus: { value: new THREE.Vector2(.5, .5) }, uAsp: { value: new THREE.Vector2(1, 1) }, uTime: { value: 0 },
+    uBloom: { value: .9 }, uCA: { value: .004 }, uDof: { value: 0 }, uGrain: { value: .045 } });
+  const pass = (mat, target) => { quad.material = mat; renderer.setRenderTarget(target); renderer.render(qScene, qCam); };
+  const blurPass = (src, tmp, dst, w, h, s) => {
+    blur.uniforms.t.value = src.texture; blur.uniforms.dir.value.set(s / w, 0); pass(blur, tmp);
+    blur.uniforms.t.value = tmp.texture; blur.uniforms.dir.value.set(0, s / h); pass(blur, dst);
+  };
+  let W = 1, H = 1, scale = 1;
+  function setSize() {
+    const pr = renderer.getPixelRatio() * scale;
+    W = Math.max(2, Math.floor(innerWidth * pr)); H = Math.max(2, Math.floor(innerHeight * pr));
+    rtScene.setSize(W, H);
+    const s = (rt, k) => rt.setSize(Math.max(1, W >> k), Math.max(1, H >> k));
+    s(hA, 1); s(hB, 1); s(b1A, 2); s(b1B, 2); s(b2A, 3); s(b2B, 3); s(b3A, 4); s(b3B, 4);
+    comp.uniforms.uAsp.value.set(innerWidth / innerHeight, 1);
+  }
+  setSize();
+  function render(t) {
+    renderer.setRenderTarget(rtScene); renderer.render(scene, camera);
+    const w1 = hA.width, h1 = hA.height;
+    copy.uniforms.t.value = rtScene.texture; copy.uniforms.px.value.set(.5 / W, .5 / H); pass(copy, hA);
+    blurPass(hA, hB, hA, w1, h1, 1.6);                          // soft copy -> DOF
+    bright.uniforms.t.value = hA.texture; pass(bright, b1A);
+    blurPass(b1A, b1B, b1A, b1A.width, b1A.height, 1.2);
+    copy.uniforms.t.value = b1A.texture; copy.uniforms.px.value.set(.5 / b1A.width, .5 / b1A.height); pass(copy, b2A);
+    blurPass(b2A, b2B, b2A, b2A.width, b2A.height, 1.4);
+    copy.uniforms.t.value = b2A.texture; copy.uniforms.px.value.set(.5 / b2A.width, .5 / b2A.height); pass(copy, b3A);
+    blurPass(b3A, b3B, b3A, b3A.width, b3A.height, 1.6);
+    const u = comp.uniforms;
+    u.tS.value = rtScene.texture; u.tSoft.value = hA.texture; u.tB1.value = b1A.texture; u.tB2.value = b2A.texture; u.tB3.value = b3A.texture; u.uTime.value = t;
+    pass(comp, null);
+  }
+  return { render, setSize, u: comp.uniforms, degrade() { if (scale > .7) { scale = .72; setSize(); return true; } return false; } };
+})();
+
 /* ------------------------------------------------------------------ set geometry */
 const SP = 1.3, NW = 1.0, NH = 2.8, ND = 0.9, PLY = 0.22, SZ = 3.2;
 const X = i => (i - (N - 1) / 2) * SP;
@@ -44,8 +120,24 @@ const fogBandTex = cTex(256, 128, (x, w, h) => { const g = x.createLinearGradien
 /* ------------------------------------------------------------------ shaders */
 const BOTTLE_VS = `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`;
 const BOTTLE_FS = `
-uniform sampler2D map, rowTex; uniform float uAspect,uRot,uDim,uMirror,uOpacity,uRim,uSpec,uTime; uniform vec3 uAcc,uL;
+uniform sampler2D map, rowTex; uniform float uAspect,uRot,uDim,uMirror,uOpacity,uRim,uSpec,uTime,uRough; uniform vec3 uAcc,uL,uEnv;
 varying vec2 vUv;
+// procedural vault environment: warm lamp overhead, accent floor bounce, horizon line, side softbox strip
+// uRough widens environment lobes and softboxes; attenuate their peaks as they widen.
+vec3 envMap(vec3 R){
+  float y=R.y;
+  float kL=1.0+3.0*uRough, kH=1.0+40.0*uRough, kS=1.0+12.0*uRough;
+  // Work in directions rather than wrapped angles; fade azimuth at the poles.
+  vec2 horizontal=R.xz/max(length(R.xz),0.0001);
+  vec3 e=mix(vec3(0.010,0.009,0.008),vec3(0.035,0.032,0.030),smoothstep(-0.2,0.6,y));
+  e+=uAcc*(0.22*exp(-y*y*30.0)*(1.0-smoothstep(-0.06,0.02,y))+0.08*(1.0-smoothstep(-1.0,0.0,y)));
+  e+=vec3(1.0,0.93,0.82)*1.6*inversesqrt(kL)*exp(-(1.0-y)*(1.0-y)*14.0/kL);
+  e+=vec3(0.9,0.92,1.0)*0.55*inversesqrt(kH)*exp(-y*y*900.0/kH)*(0.5+0.5*horizontal.y);
+  float alignment=clamp(dot(horizontal,vec2(0.912764,0.408487)),-1.0,1.0);
+  float st=inversesqrt(kS)*exp((alignment-1.0)*98.0/kS)*smoothstep(-0.35,0.05,y)*(1.0-smoothstep(0.55,0.8,y));
+  e+=vec3(1.0,0.97,0.93)*0.9*st;
+  return e;
+}
 void main(){
   vec4 base=texture2D(map,vUv);
   if(base.a<0.01) discard;
@@ -72,6 +164,22 @@ void main(){
   col*=(0.58+0.62*diff)*mix(0.55,1.0,cos(th));
   col+=(spec+spec2)*vec3(1.0,0.97,0.92);
   col+=rim*uAcc;
+  // glass: two studio softbox reflections that stay fixed in view while the label turns + fresnel edge
+  float ls=clamp(-L.x,-1.,1.)*-0.95;
+  float vfade=smoothstep(0.03,0.22,vUv.y)*(1.0-smoothstep(0.80,0.97,vUv.y));
+  float w1=0.13*(1.0+1.5*uRough), w2=0.05*(1.0+3.0*uRough);
+  float sb1=(1.0-smoothstep(0.0,w1,abs(th-ls)))*vfade*inversesqrt(w1/0.13);
+  float sb2=(1.0-smoothstep(0.0,w2,abs(th+ls*1.25)))*vfade*(0.6+0.4*sin(vUv.y*9.0+uTime*0.4))*inversesqrt(w2/0.05);
+  float fres=pow(1.0-abs(cos(th)),3.0);
+  // environment reflection: view-dependent (slides when the camera orbits), Schlick fresnel weighted
+  vec3 Rv=reflect(vec3(0.0,0.0,-1.0),N);
+  float ca=cos(uEnv.x), sa=sin(uEnv.x), cp=cos(uEnv.y), sp=sin(uEnv.y);
+  Rv=vec3(ca*Rv.x+sa*Rv.z, Rv.y, -sa*Rv.x+ca*Rv.z);
+  Rv=vec3(Rv.x, cp*Rv.y-sp*Rv.z, sp*Rv.y+cp*Rv.z);
+  float Fs=0.06+0.94*pow(1.0-clamp(N.z,0.0,1.0),5.0);
+  col+=envMap(normalize(Rv))*Fs*uEnv.z*(0.6+0.8*uSpec);
+  col+=(sb1*0.75+sb2*0.45)*uSpec*vec3(1.0,0.98,0.95);
+  col+=fres*0.35*uSpec*mix(vec3(0.85,0.92,1.0),uAcc,0.35);
   col*=mix(0.45,1.0,1.0-back);
   col*=uDim;
   float alpha=base.a*uOpacity;
@@ -88,18 +196,25 @@ void main(){ vec3 c=mix(uBot,uTop,smoothstep(0.08,0.95,vUv.y));
   c+=uSun*(exp(-d*d/(uSunR*uSunR))*0.95+exp(-d*5.0)*0.22);
   float n=h(floor(vUv*vec2(900.,500.))+floor(uTime*8.0))*0.018; c+=n;
   gl_FragColor=vec4(c,uO); }`;
-const PT_VS = `attribute float aR; uniform float uTime,uSpeed,uSize,uWob,uCx,uSpread; varying float vA; varying float vR;
-void main(){ vec3 p=position; p.x*=uSpread; p.y=mod(p.y+uTime*uSpeed*(0.45+aR),4.6)-0.1; p.x+=sin(uTime*0.6+aR*6.283)*uWob+uCx; p.z+=cos(uTime*0.4+aR*9.0)*uWob*0.4;
-  vec4 mv=modelViewMatrix*vec4(p,1.0); gl_Position=projectionMatrix*mv; gl_PointSize=min(uSize*(0.5+aR)*(200.0/-mv.z),38.0);
-  vA=smoothstep(-0.1,0.4,p.y)*(1.0-smoothstep(3.6,4.5,p.y)); vR=aR; }`;
-const PT_FS = `uniform vec3 uC; uniform float uO,uRing,uTime; varying float vA; varying float vR;
+// particles: out-of-focus ones grow into bokeh discs (energy-conserving), motes glint inside the stage light column, mouse breeze drifts them by depth
+const PT_VS = `attribute float aR; uniform float uTime,uSpeed,uSize,uWob,uCx,uSpread,uFD,uBk,uLi,uWind; uniform vec3 uLp; varying float vA; varying float vR; varying float vB; varying float vL;
+void main(){ vec3 p=position; p.x*=uSpread; p.y=mod(p.y+uTime*uSpeed*(0.45+aR),4.6)-0.1; p.x+=sin(uTime*0.6+aR*6.283)*uWob+uCx+uWind*(0.35+aR)*(0.3+p.z*0.25); p.z+=cos(uTime*0.4+aR*9.0)*uWob*0.4;
+  vec4 mv=modelViewMatrix*vec4(p,1.0); gl_Position=projectionMatrix*mv; float cz=max(-mv.z,0.05);
+  float coc=clamp(abs(cz-uFD)/max(uFD,0.5),0.0,1.5)*uBk; float grow=1.0+coc*2.2;
+  gl_PointSize=min(uSize*(0.5+aR)*(200.0/cz)*grow,72.0);
+  vec2 dl=p.xz-uLp.xz; vL=exp(-dot(dl,dl)*1.4)*smoothstep(-0.1,1.2,p.y)*uLi;
+  vA=smoothstep(-0.1,0.4,p.y)*(1.0-smoothstep(3.6,4.5,p.y))/pow(grow,1.35); vR=aR; vB=clamp(coc/1.2,0.0,1.0); }`;
+const PT_FS = `uniform vec3 uC; uniform float uO,uRing,uTime; varying float vA; varying float vR; varying float vB; varying float vL;
 void main(){ vec2 q=gl_PointCoord-0.5; float d=length(q); if(d>0.5) discard;
   float soft=1.0-smoothstep(0.0,0.5,d); float ring=smoothstep(0.32,0.42,d)*(1.0-smoothstep(0.42,0.5,d))+soft*0.15;
-  float a=mix(soft*soft,ring,uRing)*uO*vA*(0.6+0.4*sin(uTime*2.0+vR*20.0));
-  gl_FragColor=vec4(uC,a); }`;
+  float disc=1.0-smoothstep(0.40,0.5,d); float bok=disc*0.55+smoothstep(0.30,0.46,d)*disc*0.45;
+  float shape=mix(mix(soft*soft,bok,vB),ring,uRing);
+  float tw=0.6+0.4*sin(uTime*2.0+vR*20.0); float glint=pow(max(sin(uTime*3.1+vR*41.0),0.0),12.0)*vL;
+  float a=shape*uO*vA*(tw+vL*1.6+glint*3.0);
+  gl_FragColor=vec4(uC*(1.0+vL*0.8+glint),a); }`;
 
 /* ------------------------------------------------------------------ state (driven by GSAP) */
-const C = { x: 0, y: 5.5, z: 26, lx: 0, ly: 1.2, lz: 0 };                     // camera
+const C = { x: 0, y: 5.5, z: 26, lx: 0, ly: 1.2, lz: 0, roll: 0, fz: 0 };  // roll: dutch angle (rad), fz: fov offset (deg)                   // camera
 const B = P.map((p, i) => ({ x: X(i), y: PLY, z: -ND * 0.5, rot: 0, tilt: 0, yaw: 0, stage: 0 })); // bottles
 const L = P.map(() => ({ lit: 0, strip: 0 }));                                  // niche lights
 const E = P.map(() => ({ mix: 0, tx: 0 }));                                     // story environments
@@ -180,8 +295,13 @@ async function buildScene(progress) {
   progress(.3);
 
   /* bottles */
+  // glass finish per theme: frosted vodka, satin agave/barrel glass, polished elsewhere (override with `rough` in content.js)
+  const ROUGH = { frost: .85, agave: .35, agaveNight: .3, barrels: .25, botanicals: .2 };
   for (let i = 0; i < N; i++) {
     const p = P[i], a = A.bottles[p.key];
+    // Reject malformed content overrides before they reach inversesqrt in GLSL.
+    const defaultRough = ROUGH[p.theme] ?? .15;
+    const rough = Number.isFinite(p.rough) ? Math.max(0, Math.min(1, p.rough)) : defaultRough;
     const [map, row] = await Promise.all([loadTex(a.img), loadTex(a.row)]);
     map.anisotropy = renderer.capabilities.getMaxAnisotropy(); map.minFilter = THREE.LinearMipmapLinearFilter;
     row.generateMipmaps = false; row.minFilter = row.magFilter = THREE.LinearFilter; row.wrapS = row.wrapT = THREE.ClampToEdgeWrapping;
@@ -189,7 +309,8 @@ async function buildScene(progress) {
     const geo = new THREE.PlaneGeometry(w, h); geo.translate(0, h / 2, 0);
     const uniforms = {
       map: { value: map }, rowTex: { value: row }, uAspect: { value: a.aspect }, uRot: { value: 0 }, uDim: { value: .2 }, uMirror: { value: 0 },
-      uOpacity: { value: 1 }, uRim: { value: .35 }, uSpec: { value: .55 }, uTime: { value: 0 }, uAcc: { value: new THREE.Color(p.c) }, uL: { value: new THREE.Vector3(-.5, .5, .8) } };
+      uOpacity: { value: 1 }, uRim: { value: .35 }, uSpec: { value: .55 }, uTime: { value: 0 }, uAcc: { value: new THREE.Color(p.c) }, uL: { value: new THREE.Vector3(-.5, .5, .8) }, uEnv: { value: new THREE.Vector3(0, 0, .5) },
+      uRough: { value: rough } };
     const mat = new THREE.ShaderMaterial({ vertexShader: BOTTLE_VS, fragmentShader: BOTTLE_FS, uniforms, transparent: true, depthWrite: false, side: THREE.DoubleSide });
     const m = new THREE.Mesh(geo, mat); m.renderOrder = 10; m.userData.i = i; scene.add(m); bottleMeshes.push(m);
     const mu = { ...uniforms, uMirror: { value: 1 } };
@@ -209,7 +330,8 @@ async function buildScene(progress) {
   for (let k = 0; k < n; k++) { pos[k * 3] = (r() - .5) * 9; pos[k * 3 + 1] = r() * 4.6; pos[k * 3 + 2] = .3 + r() * 5.0; ar[k] = r(); }
   const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); pg.setAttribute('aR', new THREE.BufferAttribute(ar, 1));
   points = new THREE.Points(pg, new THREE.ShaderMaterial({ vertexShader: PT_VS, fragmentShader: PT_FS, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    uniforms: { uTime: { value: 0 }, uSpeed: { value: .05 }, uSize: { value: 2.3 }, uWob: { value: .15 }, uCx: { value: 0 }, uSpread: { value: 2.4 }, uC: { value: new THREE.Color(1, .92, .82) }, uO: { value: .55 }, uRing: { value: 0 } } }));
+    uniforms: { uTime: { value: 0 }, uSpeed: { value: .05 }, uSize: { value: 2.3 }, uWob: { value: .15 }, uCx: { value: 0 }, uSpread: { value: 2.4 }, uC: { value: new THREE.Color(1, .92, .82) }, uO: { value: .55 }, uRing: { value: 0 },
+      uFD: { value: 10 }, uBk: { value: mobile() ? .55 : 1 }, uLi: { value: 0 }, uWind: { value: 0 }, uLp: { value: new THREE.Vector3() } } }));
   points.frustumCulled = false; points.renderOrder = 12; scene.add(points);
 
   /* story environments */
@@ -428,18 +550,29 @@ const UNIT_VH = 52;
 let tl, st, chStart = [], chEnd = [], chBeat = [], ready = false;
 
 function canonical() {
-  Object.assign(C, camWide());
+  Object.assign(C, camWide(), { roll: 0, fz: 0 });
   B.forEach((b, i) => Object.assign(b, { x: X(i), y: PLY, z: -ND * .5, rot: 0, tilt: 0, yaw: 0, stage: 0 }));
   L.forEach(l => Object.assign(l, { lit: 1, strip: 1 })); E.forEach(e => Object.assign(e, { mix: 0, tx: 0 }));
   Object.assign(SH, { L: 0, R: 0, B: 0, bar: 0 }); Object.assign(LIGHT, { x: -.55, y: .55, z: .75 });
   Object.assign(ACC, hex('#e46e91')); Object.assign(FX, FXP.dust, { cx: 0, spread: 2.4 });
 }
+const TXT_RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const textBlur = px => mobile() || TXT_RM ? 'none' : `blur(${px}px)`;
 function beatIn(el, t) {
   tl.set(el, { autoAlpha: 1 }, t);
-  tl.fromTo(el.querySelectorAll('.w>span'), { yPercent: 115, rotate: 5 }, { yPercent: 0, rotate: 0, duration: .8, stagger: .045, ease: 'power4.out', immediateRender: false }, t);
-  tl.fromTo(el.querySelectorAll('.bk,p,.serve,.stat,dl,.buy'), { autoAlpha: 0, y: 22 }, { autoAlpha: 1, y: 0, duration: .7, stagger: .08, ease: 'power3.out', immediateRender: false }, t + .15);
+  // headline: words rise from their mask, pivoting on the baseline, de-blurring as they land
+  tl.fromTo(el.querySelectorAll('.w>span'), { yPercent: 115, rotate: TXT_RM ? 0 : 6, transformOrigin: '0% 100%', filter: textBlur(5) },
+    { yPercent: 0, rotate: 0, filter: textBlur(0), duration: .85, stagger: .05, ease: 'expo.out', immediateRender: false }, t);
+  // kicker rule draws in from the left
+  const rule = el.querySelector('.bk i');
+  if (rule) tl.fromTo(rule, { scaleX: 0, transformOrigin: '0% 50%' }, { scaleX: 1, duration: .7, ease: 'expo.out', immediateRender: false }, t + .05);
+  // paragraph: top-down wipe + focus pull
+  const para = el.querySelector('p');
+  if (para) tl.fromTo(para, { autoAlpha: 0, y: 14, clipPath: 'inset(0% 0% 100% 0%)', filter: textBlur(4) },
+    { autoAlpha: 1, y: 0, clipPath: 'inset(0% 0% -10% 0%)', filter: textBlur(0), duration: .9, ease: 'power3.out', immediateRender: false }, t + .22);
+  tl.fromTo(el.querySelectorAll('.bk,.serve,.stat,dl,.buy'), { autoAlpha: 0, y: 22 }, { autoAlpha: 1, y: 0, duration: .7, stagger: .08, ease: 'power3.out', immediateRender: false }, t + .15);
   const lis = el.querySelectorAll('.notes li');
-  if (lis.length) tl.fromTo(lis, { autoAlpha: 0, y: 26, scale: .85, filter: 'blur(8px)' }, { autoAlpha: 1, y: 0, scale: 1, filter: 'blur(0px)', duration: .6, stagger: .1, ease: 'back.out(1.6)', immediateRender: false }, t + .35);
+  if (lis.length) tl.fromTo(lis, { autoAlpha: 0, y: 26, scale: .85, filter: textBlur(8) }, { autoAlpha: 1, y: 0, scale: 1, filter: textBlur(0), duration: .6, stagger: .1, ease: 'back.out(1.6)', immediateRender: false }, t + .35);
   const num = el.querySelector('.num');
   if (num && num.dataset.n !== '') {
     const o = { v: 0 }, n = +num.dataset.n, pre = num.dataset.pre, suf = num.dataset.suf;
@@ -447,7 +580,9 @@ function beatIn(el, t) {
   }
 }
 function beatOut(el, t) {
-  tl.to(el.querySelectorAll('.w>span'), { yPercent: -112, duration: .5, stagger: .02, ease: 'power2.in' }, t);
+  tl.to(el.querySelectorAll('.w>span'), { yPercent: -112, filter: textBlur(4), duration: .5, stagger: .02, ease: 'power2.in' }, t);
+  const rule = el.querySelector('.bk i');
+  if (rule) tl.to(rule, { scaleX: 0, transformOrigin: '100% 50%', duration: .4, ease: 'power2.in' }, t);
   tl.to(el.querySelectorAll('.bk,p,.serve,.stat,dl,.buy,.notes li'), { autoAlpha: 0, y: -14, duration: .4, stagger: .03, ease: 'power2.in' }, t);
   tl.set(el, { autoAlpha: 0 }, t + .62);
 }
@@ -455,6 +590,15 @@ function beatOut(el, t) {
 function build() {
   if (st) st.kill(); if (tl) tl.kill();
   canonical();
+  // A rebuilt timeline must capture the original styles, not a mid-scroll pose.
+  gsap.set('#ctitle,#hint,.beat,.beat .w>span,.beat .bk,.beat .bk i,.beat p,.beat .serve,.beat .stat,.beat dl,.beat .buy,.notes li,.chead,.chead .k,.chead .w>span,#outro', {
+    clearProps: 'transform,transformOrigin,filter,clipPath,letterSpacing,opacity,visibility'
+  });
+  $$('.beat').forEach(el => {
+    el.classList.remove('L', 'R', 'B');
+    el.classList.add(mobile() ? 'B' : (+el.dataset.k % 2 ? 'R' : 'L'));
+  });
+  lastHud = '';
   gsap.set('.beat,.chead,#outro', { autoAlpha: 0 });
   tl = gsap.timeline({ paused: true, defaults: { ease: 'power2.inOut' } });
   chStart = []; chEnd = []; chBeat = [];
@@ -468,6 +612,9 @@ function build() {
     /* A — travel to the niche */
     if (i === 0) tl.to(C, { ...camNiche(0), duration: 1.7, ease: 'power3.inOut' }, t);
     else { tl.to(C, { ...camMid(i - 1, i), duration: .85, ease: 'power2.in' }, t); tl.to(C, { ...camNiche(i), duration: .95, ease: 'power3.out' }, t + .85); }
+    { // bank into the move + lens breathes wider with speed, then settles
+      const d = i === 0 ? 1 : Math.sign(X(i) - X(i - 1)) || 1, m = mobile() ? .5 : 1;
+      tl.to(C, { keyframes: { roll: [0, -d * .045 * m, d * .012 * m, 0], fz: [0, 5 * m, 1, 0] }, duration: 1.8, ease: 'sine.inOut' }, t); }
     P.forEach((q, j) => { if (j !== i) tl.to(L[j], { lit: .07, strip: .22, duration: .8 }, t + .1); });
     tl.to(L[i], { lit: 1, strip: 1, duration: .6 }, t + .5);
     tl.to(ACC, { ...hex(p.c), duration: .8 }, t + .4);
@@ -479,14 +626,17 @@ function build() {
     tl.fromTo(B[i], { rot: -p.rot * 2.8 }, { rot: 0, duration: 1.8, ease: 'power2.out', immediateRender: false }, s0);
     tl.to(B[i], { stage: 1, duration: 1.1 }, s0 + .25);
     tl.to(B[i], { keyframes: { tilt: [0, .07, -.035, 0], yaw: [0, -.12, .05, 0] }, duration: 1.6 }, s0);
-    tl.to(C, { ...camStage(i, 0, false), duration: 1.6, ease: 'power3.inOut' }, s0);
+    tl.to(C, { ...camStage(i, 0, false), fz: -1.5, duration: 1.6, ease: 'power3.inOut' }, s0);
     tl.to(E[i], { mix: 1, duration: 1.2 }, s0 + .35);
     tl.to(L[i], { lit: .3, duration: 1 }, s0 + .5);
     tl.to(FX, { ...FXP[p.fx], duration: 1 }, s0 + .5);
     tl.to(SH, { bar: mobile() ? 0 : 1, duration: 1 }, s0 + .2);
     const ch = $$('.chead')[i];
     tl.set(ch, { autoAlpha: 1 }, s0 + .6);
-    tl.fromTo(ch.querySelectorAll('.k,.w>span'), { autoAlpha: 0, yPercent: 60 }, { autoAlpha: 1, yPercent: 0, duration: .7, stagger: .05, ease: 'power3.out', immediateRender: false }, s0 + .6);
+    // chapter kicker tightens its tracking as it appears; name rises word by word
+    tl.fromTo(ch.querySelector('.k'), { autoAlpha: 0, yPercent: 0, letterSpacing: mobile() ? '.6em' : '.9em', filter: textBlur(6) },
+      { autoAlpha: 1, letterSpacing: mobile() ? '.3em' : '.42em', filter: textBlur(0), duration: 1, ease: 'expo.out', immediateRender: false }, s0 + .55);
+    tl.fromTo(ch.querySelectorAll('.w>span'), { autoAlpha: 0, yPercent: 80, filter: textBlur(6) }, { autoAlpha: 1, yPercent: 0, filter: textBlur(0), duration: .8, stagger: .06, ease: 'expo.out', immediateRender: false }, s0 + .7);
     tl.to(ch.querySelectorAll('.k,.w>span'), { autoAlpha: 0, yPercent: -60, duration: .45, stagger: .02, ease: 'power2.in' }, s0 + 1.9);
     tl.set(ch, { autoAlpha: 0 }, s0 + 2.4);
     t = s0 + 2.2;
@@ -497,7 +647,7 @@ function build() {
       chBeat[i].push(bt);
       tl.to(B[i], { x: X(i) + offs[k], rot: (k % 2 ? -1 : 1) * p.rot * (close ? .5 : 1), duration: 1.3, ease: 'power3.inOut' }, bt);
       tl.to(B[i], { keyframes: { tilt: [0, (offs[k] > 0 ? -1 : 1) * .05, 0] }, duration: 1.3 }, bt);
-      tl.to(C, { ...camStage(i, offs[k], close), duration: 1.4, ease: 'power3.inOut' }, bt);
+      tl.to(C, { ...camStage(i, offs[k], close), fz: close ? -4 : -1.5, roll: mobile() ? 0 : -offs[k] * .012, duration: 1.4, ease: 'power3.inOut' }, bt);
       tl.to(SH, { L: side === 'L' ? 1 : 0, R: side === 'R' ? 1 : 0, B: side === 'B' ? 1 : 0, duration: .8 }, bt + .1);
       tl.to(LIGHT, { x: k % 2 ? .65 : -.65, y: k === 2 ? .25 : .55, duration: 1.4 }, bt);
       tl.to(E[i], { tx: -offs[k] * .35, duration: 1.4 }, bt);
@@ -512,6 +662,7 @@ function build() {
     tl.to(E[i], { mix: 0, tx: 0, duration: 1.1 }, r0);
     tl.to(SH, { L: 0, R: 0, B: 0, bar: 0, duration: .7 }, r0);
     tl.to(B[i], { x: X(i), z: -ND * .5, y: PLY, duration: 1.4, ease: 'power3.inOut' }, r0);
+    tl.to(C, { fz: 0, roll: 0, duration: 1.3, ease: 'power3.inOut' }, r0);
     tl.to(B[i], { rot: p.rot * 2.4, duration: 1.4, ease: 'power2.in' }, r0);
     tl.set(B[i], { rot: 0 }, r0 + 1.45);
     tl.to(B[i], { stage: 0, duration: .9 }, r0 + .4);
@@ -521,6 +672,7 @@ function build() {
   });
   /* outro — all the lights come back */
   tl.to(C, { ...camWide(), duration: 2.2, ease: 'power3.inOut' }, t);
+  tl.to(C, { keyframes: { fz: [0, 3, 0], roll: [0, .02, 0] }, duration: 2.2, ease: 'sine.inOut' }, t);
   P.forEach((q, j) => { tl.to(L[j], { lit: 1, strip: 1, duration: .25 }, t + .8 + j * .1); });
   tl.to(FX, { ...FXP.dust, cx: 0, spread: 2.4, duration: 1.2 }, t);
   tl.to(ACC, { ...hex('#e46e91'), duration: .8 }, t + .6);
@@ -608,9 +760,10 @@ function frame() {
   mouse.sx = lerp(mouse.sx, mouse.x, .045); mouse.sy = lerp(mouse.sy, mouse.y, .045);
   const stageMax = Math.max(...B.map(b => b.stage));
   const par = mobile() ? .12 : .32 + stageMax * .25;
-  camera.fov = FOV(); camera.updateProjectionMatrix();
+  camera.fov = FOV() + C.fz; camera.updateProjectionMatrix();
   camera.position.set(C.x + mouse.sx * par + Math.sin(t * .37) * .03, C.y - mouse.sy * par * .45 + Math.sin(t * .51) * .02, C.z);
   camera.lookAt(C.lx + mouse.sx * par * .25, C.ly - mouse.sy * par * .1, C.lz);
+  camera.rotateZ(RM ? 0 : C.roll - mouse.sx * .008 * stageMax);
 
   let act = -1, am = 0;
   const envMax = Math.max(...E.map(e => e.mix));
@@ -623,6 +776,8 @@ function frame() {
     u.uDim.value = lerp(.16 + .84 * l.lit, 1.06, b.stage);
     u.uSpec.value = .35 + .55 * b.stage; u.uRim.value = .25 + .6 * b.stage;
     u.uL.value.set(LIGHT.x + Math.sin(t * .3) * .15, LIGHT.y, LIGHT.z); u.uTime.value = t;
+    { const dx = camera.position.x - b.x, dz = camera.position.z - b.z, dy = camera.position.y - b.y - .6;
+      u.uEnv.value.set(Math.atan2(dx, dz) - b.yaw, Math.atan2(dy, Math.hypot(dx, dz)) * .5, .45 + .9 * b.stage); }
     u.uOpacity.value = b.stage > .02 ? 1 : 1 - envMax;
     if (b.stage > am) { am = b.stage; act = i; }
     // niche lights
@@ -642,32 +797,52 @@ function frame() {
     }
   }
   if (act >= 0) {
-    const b = B[act], c = new THREE.Color(P[act].c);
-    pool.position.set(b.x, .007, b.z + .1); pool.material.color.copy(c); pool.material.opacity = .55 * am;
+    const b = B[act];
+    pool.position.set(b.x, .007, b.z + .1); pool.material.color.set(P[act].c); pool.material.opacity = .55 * am;
     shadow.position.set(b.x, .009, b.z); shadow.material.opacity = .85 * am; shadow.scale.set(1 + .15 * Math.sin(t * 1.1 + act), 1, 1);
   } else { pool.material.opacity = 0; shadow.material.opacity = 0; }
 
   const pu = points.material.uniforms;
   pu.uTime.value = t; pu.uSpeed.value = FX.speed; pu.uSize.value = FX.size * (mobile() ? .8 : 1) * renderer.getPixelRatio() / 1.5; pu.uO.value = FX.op; pu.uRing.value = FX.ring;
   pu.uWob.value = FX.wob; pu.uCx.value = FX.cx; pu.uSpread.value = FX.spread; pu.uC.value.setRGB(FX.r, FX.g, FX.b);
+  // bokeh focus follows the staged bottle (else the look-at point); light column sits on the staged bottle
+  const fd = act >= 0 ? camera.position.distanceTo(focusV.set(B[act].x, B[act].y + HB(P[act]) * .5, B[act].z)) : camera.position.distanceTo(focusV.set(C.lx, C.ly, C.lz));
+  pu.uFD.value = lerp(pu.uFD.value, fd, .1);
+  if (act >= 0) pu.uLp.value.set(B[act].x, 0, B[act].z);
+  pu.uLi.value = lerp(pu.uLi.value, am, .06);
+  pu.uWind.value = lerp(pu.uWind.value, RM ? 0 : mouse.sx * .45, .025);
 
   for (const k in shadeEls) shadeEls[k].style.opacity = SH[k].toFixed(3);
   const bh = (SH.bar * 5.5).toFixed(2) + 'vh'; barEls[0].style.height = bh; barEls[1].style.height = bh;
   const ac = `rgb(${ACC.r * 255 | 0},${ACC.g * 255 | 0},${ACC.b * 255 | 0})`; if (ac !== accCss) { document.documentElement.style.setProperty('--acc', ac); accCss = ac; }
 
-  renderer.render(scene, camera);
+  // post: focus on the staged bottle, CA kicks in with camera speed, bloom breathes with the stage
+  const dt = Math.min(.1, Math.max(.001, t - lastT)); lastT = t;
+  const v = camera.position.distanceTo(prevCam) / dt; prevCam.copy(camera.position);
+  camVel = lerp(camVel, v, .12);
+  if (act >= 0) { focusV.set(B[act].x, B[act].y + HB(P[act]) * .5, B[act].z).project(camera); POST.u.uFocus.value.set(focusV.x * .5 + .5, focusV.y * .5 + .5); }
+  POST.u.uDof.value = lerp(POST.u.uDof.value, mobile() ? am * .5 : am * .9, .08);
+  POST.u.uCA.value = RM ? .001 : .0015 + Math.min(camVel * .0014, .014);
+  POST.u.uBloom.value = .75 + .35 * am;
+  POST.render(t);
+  // adaptive quality: if we sit under ~38 fps for a while, render the post chain smaller (once)
+  if (dt < .09 && !document.hidden) fpsAcc = lerp(fpsAcc, dt, .05);   // ignore tab-switch / GC hitches
+  if (ready && !degraded && t > 6 && fpsAcc > 1 / 38) { degraded = true; POST.degrade(); }
   requestAnimationFrame(frame);
 }
+let lastT = 0, camVel = 0, fpsAcc = 1 / 60, degraded = false;
+const prevCam = new THREE.Vector3(), focusV = new THREE.Vector3();
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /* ------------------------------------------------------------------ intro */
 function intro() {
   lenis.stop();
-  Object.assign(C, { x: -1.5, y: 5.5, z: camWide().z + 14, lx: 0, ly: 1.1, lz: 0 });
+  Object.assign(C, { x: -1.5, y: 5.5, z: camWide().z + 14, lx: 0, ly: 1.1, lz: 0, roll: RM ? 0 : .07, fz: RM ? 0 : 8 });
   L.forEach(l => Object.assign(l, { lit: 0, strip: 0 }));
   gsap.set(['header', '#hud', '#ctitle', '#hint'], { autoAlpha: 0 });
   const it = gsap.timeline({ onComplete: () => { build(); ready = true; lenis.start(); } });
   it.to('#loader', { autoAlpha: 0, duration: 1, ease: 'power2.inOut', onComplete: () => { $('#loader').remove(); document.body.classList.remove('loading'); } })
-    .to(C, { ...camWide(), duration: 4.6, ease: 'power3.out' }, .2);
+    .to(C, { ...camWide(), roll: 0, fz: 0, duration: 4.6, ease: 'power3.out' }, .2);
   L.forEach((l, i) => {
     const at = 1.0 + i * .2;
     it.to(l, { keyframes: [{ lit: 1, duration: .05 }, { lit: .15, duration: .07 }, { lit: .9, duration: .05 }, { lit: .3, duration: .08 }, { lit: 1, duration: .15 }] }, at)
@@ -683,12 +858,13 @@ history.scrollRestoration = 'manual'; scrollTo(0, 0);
 const setLoad = v => { $('#loader .lb i').style.transform = `scaleX(${v})`; };
 buildScene(setLoad).then(() => {
   setLoad(1); $('#lmsg').textContent = 'Les lumières s’allument';
+  const gr = $('#grain'); if (gr) gr.style.display = 'none';   // grain now rendered in the post shader
   requestAnimationFrame(frame);
   setTimeout(intro, 350);
 });
 let rz;
 addEventListener('resize', () => {
-  renderer.setPixelRatio(DPR()); renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setPixelRatio(DPR()); renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); POST.setSize();
   if (!ready) return;
   clearTimeout(rz); rz = setTimeout(() => { const pr = tl.progress(); build(); tl.progress(pr); ScrollTrigger.refresh(); lenis.scrollTo(yFor(pr * tl.duration()), { immediate: true }); }, 250);
 });
