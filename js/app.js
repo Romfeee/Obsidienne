@@ -67,6 +67,59 @@
     });
   }
 
+
+  /* ---------- relief: the real photo wrapped on its own outline (no 3D model) ----------
+     Each row of the photo is treated as a slice of a round flacon: turning by an angle
+     slides the label around the glass and moves a highlight, like a bottle turned in the hand. */
+  var VS = 'attribute vec2 p;varying vec2 v;void main(){v=p*.5+.5;gl_Position=vec4(p,0.,1.);}';
+  var FS = 'precision highp float;varying vec2 v;uniform sampler2D T,Pf;uniform float th,lt,N;' +
+    'vec2 dec(vec4 a){return vec2(a.r*65280.+a.g*255.,a.b*65280.+a.a*255.)/65535.;}' +
+    'vec2 prof(float y){float fy=y*(N-1.);float i=floor(fy);float f=fy-i;' +
+    'return mix(dec(texture2D(Pf,vec2(.5,(i+.5)/N))),dec(texture2D(Pf,vec2(.5,(min(i+1.,N-1.)+.5)/N))),f);}' +
+    'void main(){vec4 o=texture2D(T,v);vec2 lr=prof(1.-v.y);float c=(lr.x+lr.y)*.5;float hw=max((lr.y-lr.x)*.5,.0005);' +
+    'float u=(v.x-c)/hw;vec3 col=o.rgb;' +
+    'if(abs(u)<1.){float uu=clamp(u,-.999,.999);float u2=sin(clamp(asin(uu)-th,-1.45,1.45));' +
+    'vec4 s=texture2D(T,vec2(c+u2*hw,v.y));float k=smoothstep(1.,.8,abs(u))*step(.6,s.a);col=mix(o.rgb,s.rgb,k);' +
+    'float nz=sqrt(1.-uu*uu);float sp=pow(max(0.,uu*sin(lt)+nz*cos(lt)),30.)*.34;float rim=pow(1.-nz,3.)*.22;' +
+    'col=col*(1.-rim)+sp*vec3(1.,.97,.9);}' +
+    'gl_FragColor=vec4(col*o.a,o.a);}';
+  function makeRelief(holder, asset) {
+    if (!asset || reduce) return null;
+    var cv = document.createElement('canvas'); cv.width = asset.w; cv.height = asset.h;
+    var gl = cv.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false });
+    if (!gl) return null;
+    function sh(t, src) { var o = gl.createShader(t); gl.shaderSource(o, src); gl.compileShader(o); return o; }
+    var pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(pr);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return null;
+    gl.useProgram(pr);
+    var buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    var loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    function tex(unit) { var t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+    var n = asset.prof.length / 2, data = new Uint8Array(n * 4);
+    for (var i = 0; i < n; i++) { var l = asset.prof[2 * i], r = asset.prof[2 * i + 1]; data[4 * i] = l >> 8; data[4 * i + 1] = l & 255; data[4 * i + 2] = r >> 8; data[4 * i + 3] = r & 255; }
+    tex(1); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, n, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    gl.uniform1i(gl.getUniformLocation(pr, 'T'), 0); gl.uniform1i(gl.getUniformLocation(pr, 'Pf'), 1); gl.uniform1f(gl.getUniformLocation(pr, 'N'), n);
+    var uTh = gl.getUniformLocation(pr, 'th'), uLt = gl.getUniformLocation(pr, 'lt');
+    var R = { ready: false, draw: function (th, lt) { if (!R.ready) return; gl.uniform1f(uTh, th); gl.uniform1f(uLt, lt); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); } };
+    var im = new Image();
+    im.onload = function () {
+      try {
+        tex(0); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, im);
+        gl.viewport(0, 0, cv.width, cv.height); gl.clearColor(0, 0, 0, 0);
+        R.ready = true; R.draw(0, .5); holder.appendChild(cv); holder.classList.add('gl');
+      } catch (e) { /* keep the plain photo */ }
+    };
+    im.src = asset.src;
+    cv.addEventListener('webglcontextlost', function (e) { e.preventDefault(); R.ready = false; holder.classList.remove('gl'); });
+    return R;
+  }
+
   /* ---------- build ---------- */
   var chaptersEl = $('#chapters'), lineup = $('#lineup'), grid = $('#grid'), ticks = $('#ticks');
   $('#ht').textContent = pad(P.length);
@@ -124,7 +177,8 @@
     grid.appendChild(t);
     var tk = document.createElement('span'); tk.style.setProperty('--c', p.c); tk.innerHTML = '<em>' + plain + '</em>'; ticks.appendChild(tk);
 
-    return { p: p, sec: sec, vids: vids, img: img, lineBtn: b, tile: t, tick: tk, idx: 0, vis: false, live: -1 };
+    var relief = makeRelief($('.float', sec), (window.ASSETS || {})[p.key]);
+    return { p: p, sec: sec, vids: vids, img: img, lineBtn: b, tile: t, tick: tk, idx: 0, vis: false, live: -1, relief: relief, spin: 0, th: 0 };
   });
 
   // decorative videos for hero + outro
@@ -172,10 +226,12 @@
       c.tick.addEventListener('click', function () { go(c.sec); });
     });
 
+    var ptr = 0;
     // pointer tilt
     if (!reduce && window.matchMedia('(pointer:fine)').matches) {
       window.addEventListener('pointermove', function (e) {
-        document.documentElement.style.setProperty('--mx', (e.clientX / innerWidth * 2 - 1).toFixed(3));
+        ptr = e.clientX / innerWidth * 2 - 1;
+        document.documentElement.style.setProperty('--mx', ptr.toFixed(3));
         document.documentElement.style.setProperty('--my', (e.clientY / innerHeight * 2 - 1).toFixed(3));
       }, { passive: true });
     }
@@ -241,29 +297,45 @@
         // opener -> beat 1 (bottle goes right)
         tl.to(opener, { autoAlpha: 0, y: -70, duration: .35 }, .42)
           .to(bottle, { x: W(.21), y: Y(.02), scale: sc(.9, .82), rotate: 4, duration: .55 }, .42)
+          .to(c, { spin: -1, duration: .7 }, .35)
           .to(sl, { opacity: 1, duration: .4 }, .55)
           .fromTo(beats[0], { autoAlpha: 0, y: 70 }, { autoAlpha: 1, y: 0, duration: .35 }, .68)
         // beat 1 -> beat 2 (bottle crosses to the left)
           .to(beats[0], { autoAlpha: 0, y: -70, duration: .3 }, 1.38)
           .to(sl, { opacity: 0, duration: .4 }, 1.4)
           .to(bottle, { x: W(-.21), rotate: -4, scale: sc(.96, .82), duration: .6 }, 1.4)
+          .to(c, { spin: 1, duration: .8 }, 1.3)
           .to(sr, { opacity: 1, duration: .4 }, 1.55)
           .fromTo(beats[1], { autoAlpha: 0, y: 70 }, { autoAlpha: 1, y: 0, duration: .35 }, 1.7)
         // beat 2 -> beat 3
           .to(beats[1], { autoAlpha: 0, y: -70, duration: .3 }, 2.38)
           .to(sr, { opacity: 0, duration: .4 }, 2.4)
           .to(bottle, { x: W(.21), rotate: 4, scale: sc(.9, .82), duration: .6 }, 2.4)
+          .to(c, { spin: -1, duration: .8 }, 2.3)
           .to(sl, { opacity: 1, duration: .4 }, 2.55)
           .fromTo(beats[2], { autoAlpha: 0, y: 70 }, { autoAlpha: 1, y: 0, duration: .35 }, 2.7)
         // beat 3 -> product card (bottle comes forward, left)
           .to(beats[2], { autoAlpha: 0, y: -70, duration: .3 }, 3.33)
           .to(sl, { opacity: 0, duration: .4 }, 3.35)
           .to(bottle, { x: W(-.19), rotate: 0, scale: sc(1.08, .86), duration: .6 }, 3.35)
+          .to(c, { spin: .35, duration: .8 }, 3.25)
           .to(sr, { opacity: 1, duration: .4 }, 3.5)
           .fromTo(beats[3], { autoAlpha: 0, y: 70 }, { autoAlpha: 1, y: 0, duration: .35 }, 3.65)
           .to({}, { duration: .3 }, 4);
-        return function () { gsap.set([bottle, opener, big, sl, sr].concat(beats), { clearProps: 'all' }); };
+        return function () { c.spin = 0; gsap.set([bottle, opener, big, sl, sr].concat(beats), { clearProps: 'all' }); };
       });
+    });
+
+
+    // relief render loop: only the chapter on screen is drawn
+    gsap.ticker.add(function (t) {
+      for (var i = 0; i < chapters.length; i++) {
+        var c = chapters[i]; if (!c.relief || !c.vis) continue;
+        var rot = c.p.rot || .4;
+        var aim = Math.max(-1, Math.min(1, c.spin * .75 + ptr * .55 + Math.sin(t * .55 + i) * .16)) * rot * .6;
+        c.th += (aim - c.th) * .08;
+        c.relief.draw(c.th, .55 - c.th * 2.4 + ptr * .5);
+      }
     });
 
     // collection tiles

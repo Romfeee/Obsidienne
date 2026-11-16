@@ -8,8 +8,11 @@ UTILISATION
 - Flèches ← → : bouteille précédente / suivante. Points de la barre du bas : aller à un chapitre.
 - Clic sur une bouteille de l'accueil ou de la grille : aller à son chapitre.
 
-BOUTEILLES : img/<key>.webp (fond transparent).
-Pour changer une photo : remplacez le fichier en gardant le même nom. La taille s'ajuste toute seule.
+BOUTEILLES : ce sont les vraies photos, sans modèle 3D. L'effet de relief enroule la photo
+sur le contour du flacon : l'étiquette tourne et un reflet glisse quand on bouge la souris
+ou qu'on défile. Réglage par bouteille : « rot » dans js/content.js (0 = aucun relief).
+Pour changer une photo : envoyez-la à Claude (il faut la détourer puis régénérer
+img/<key>.webp et js/assets.js).
 
 VIDÉOS : clips libres de droits Mixkit (mixkit.co, licence gratuite), lus en ligne.
 Les identifiants sont dans js/content.js (videos:[...]).
