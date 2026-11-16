@@ -1,0 +1,19 @@
+OBSIDIENNE — « La collection nuit » (version film, sans 3D)
+
+VOIR EN LOCAL : double-cliquez sur index.html (connexion internet requise pour les vidéos).
+METTRE EN LIGNE : glissez le dossier entier sur app.netlify.com/drop
+
+UTILISATION
+- Faites défiler : chaque bouteille a son chapitre (Origine · Le geste · En bouche · La bouteille).
+- Flèches ← → : bouteille précédente / suivante. Points de la barre du bas : aller à un chapitre.
+- Clic sur une bouteille de l'accueil ou de la grille : aller à son chapitre.
+
+BOUTEILLES : img/<key>.webp (fond transparent).
+Pour changer une photo : remplacez le fichier en gardant le même nom. La taille s'ajuste toute seule.
+
+VIDÉOS : clips libres de droits Mixkit (mixkit.co, licence gratuite), lus en ligne.
+Les identifiants sont dans js/content.js (videos:[...]).
+Pour ne plus dépendre de Mixkit, ou mettre vos images : voir media/LISEZMOI.txt.
+
+TEXTES : js/content.js. Vérifiez dates et procédés avant publication.
+CONTACT : window.CONTACT en haut de js/content.js.

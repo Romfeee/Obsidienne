@@ -1,0 +1,8 @@
+VOS PROPRES VIDÉOS (facultatif)
+Déposez ici des fichiers .mp4 : ils remplacent automatiquement les clips en ligne.
+  hero-1.mp4            ouverture du site          outro-1.mp4   fin du site
+  <key>-1.mp4           Origine  (paysage)
+  <key>-2.mp4           Le geste (les gens au travail)
+  <key>-3.mp4           En bouche
+<key> = rhum, cognac, whisky, tequila, mezcal, vodka, gin, effervescent
+Conseil : 1920x1080, 8 à 15 secondes, sans son, 3 à 6 Mo par fichier.
